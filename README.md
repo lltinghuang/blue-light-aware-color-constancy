@@ -81,3 +81,6 @@ poetry run python your_script.py
 ```bash
 deactivate
 ```
+
+## Before push
+please run `pre-commit` to check
