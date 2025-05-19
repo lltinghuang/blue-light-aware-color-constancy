@@ -1,0 +1,18 @@
+[project]
+name = "blue-light-aware-color-constancy"
+version = "0.1.0"
+description = "a poetry environment"
+authors = [
+    {name = "yuhengsu1207@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy (>=2.2.6,<3.0.0)",
+    "pandas (>=2.2.3,<3.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
