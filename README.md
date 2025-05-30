@@ -1,19 +1,10 @@
 # blue-light-aware-color-constancy
 This project uses [Poetry](https://python-poetry.org/) to manage the Python environment and dependencies.
 
-##  Getting Started
+##  Environment Setting
+Make sure you have installed *Poetry*.
 
-### 1. Install Poetry
-
-If you don't have Poetry installed, run:
-
-```bash
-pip install poetry
-````
-
----
-
-###  2. Install Dependencies
+###  Install Dependencies
 
 From the project root directory, install all required packages without installing the current project as a package:
 
@@ -23,7 +14,7 @@ poetry install --no-root
 
 ---
 
-###  3. Add New Dependencies
+###  Add New Dependencies
 
 To add a new package (e.g., `pandas`), use:
 
@@ -33,7 +24,7 @@ poetry add pandas
 
 ---
 
-###  4. Activate the Virtual Environment
+###  Activate the Virtual Environment
 
 To find the path of the virtual environment, run:
 
@@ -84,3 +75,44 @@ deactivate
 
 ## Before push
 please run `pre-commit` to check
+
+## Start to Evaluation
+
+This script allows you to evaluate the perceptual difference between two images using various metrics.
+
+### Supported Metrics
+
+- **SSIM** – Structural Similarity Index  
+- **CIE2000** – Delta E (CIEDE2000) color difference  
+- **Brightness** – Average brightness in cd/m²  
+- **LER** – Luminous Efficacy of Radiation (image-independent)  
+- **EML** – Equivalent Melanopic Lux (*to be implemented*)  
+- **delta_uv_prime** – Δu'v' color difference (CIE 1976)  
+- **Duv** – Distance from the blackbody locus (Ohno 2013)  
+- **SSRGB** – Gamut area in a*b* space using convex hull  
+
+> ⚠️ Some metrics (like `SSIM`, `CIE2000`, `delta_uv_prime`, `SSRGB`) require a reference image. Make sure to provide `--ref_image`.
+
+---
+
+### How to Run
+
+```bash
+python evaluate.py \
+    --image path/to/transformed_image.png \
+    --ref_image path/to/reference_image.png \
+    --metric SSIM
+```
+
+## TODO and Version Updates
+
+### Version 1 (Current)
+- Implemented perceptual metrics (excluding EML)
+- Used simulated SPD (fake blackbody)
+- Tested on simple low-blue-light simulated images
+
+### Planned Updates
+- [ ] Add support for **EML (Equivalent Melanopic Lux)** metric
+- [ ] Integrate **real SPD profiles** for specific devices/monitors
+- [ ] Evaluate performance on **real-world image datasets**
+- [ ] Test compatibility with **our proposed color compensation method**
