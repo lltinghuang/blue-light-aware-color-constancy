@@ -1,0 +1,146 @@
+import argparse
+
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+from colour import (CCS_ILLUMINANTS, CIECAM02_to_XYZ, RGB_to_XYZ,
+                    XYZ_to_CIECAM02, XYZ_to_sRGB, sRGB_to_XYZ, xy_to_xyY,
+                    xyY_to_XYZ)
+from colour.colorimetry import SpectralShape, sd_blackbody
+from colour.colorimetry.tristimulus_values import sd_to_XYZ_integration
+from colour.temperature import CCT_to_xy_CIE_D
+from PIL import Image
+
+SPECTRAL_SHAPE_RAWTOACES: SpectralShape = SpectralShape(380, 780, 5)
+
+def convert_K_to_RGB(colour_temperature: float) -> np.ndarray:
+    """
+    Convert color temperature in Kelvin to an RGB value.
+    Based on: http://www.tannerhelland.com/4435/convert-temperature-rgb-algorithm-code/
+    """
+    colour_temperature = np.clip(colour_temperature, 1000, 40000)
+    tmp_internal = colour_temperature / 100.0
+
+    if tmp_internal <= 66:
+        red = 255
+    else:
+        red = 329.698727446 * (tmp_internal - 60)**-0.1332047592
+
+    if tmp_internal <= 66:
+        green = 99.4708025861 * np.log(tmp_internal) - 161.1195681661
+    else:
+        green = 288.1221695283 * (tmp_internal - 60)**-0.0755148492
+
+    if tmp_internal >= 66:
+        blue = 255
+    elif tmp_internal <= 19:
+        blue = 0
+    else:
+        blue = 138.5177312231 * np.log(tmp_internal - 10) - 305.0447927307
+
+    return np.clip([red, green, blue], 0, 255) / 255
+
+def apply_inverse_color_temperature(image: np.ndarray, target_temp: float) -> Image.Image:
+    r_scale, g_scale, b_scale = convert_K_to_RGB(target_temp)
+    img_np = np.asarray(image).astype(np.float32)
+
+    img_np[..., 0] /= r_scale
+    img_np[..., 1] /= g_scale
+    img_np[..., 2] /= b_scale
+    img_np = np.clip(img_np, 0, 1)
+
+    return img_np
+
+def get_XYZ_white_from_temperature(temp: float) -> np.ndarray:
+    """
+    Estimate XYZ whitepoint from color temperature (CCT), using:
+    - CIE D-series illuminants for CCT in [4000, 25000]
+    - Blackbody radiator for CCT in [1000, 4000)
+    """
+    if 4000 <= temp <= 25000:
+        # Use CIE D-series daylight model
+        xy = CCT_to_xy_CIE_D(temp)
+        XYZ = xyY_to_XYZ([*xy, 1.0])
+        print(f"Daylight CCT {temp}K to xy: {xy} to XYZ: {XYZ}")
+        return XYZ
+
+    elif 1000 <= temp < 4000:
+        # Use blackbody spectral distribution → integrate to XYZ
+        sd = sd_blackbody(temp, SPECTRAL_SHAPE_RAWTOACES)
+        XYZ = sd_to_XYZ_integration(sd)
+        XYZ /= XYZ[1]  # Normalize Y to 1
+        print(f"Blackbody CCT {temp}K to XYZ: {XYZ}")
+        return XYZ
+
+    else:
+        raise ValueError("CCT must be between 1000K and 25000K for reliable results.")
+
+def load_image(path):
+    img = cv2.imread(path)
+    if img is None:
+        raise FileNotFoundError(f"Image not found: {path}")
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+def save_image(rgb_image, path):
+    rgb_uint8 = np.clip(rgb_image * 255, 0, 255).astype(np.uint8)
+    Image.fromarray(rgb_uint8).save(path)
+
+def simulate_CIECAM02(rgb_image, Y_n=20, temp=2700, surround='Average'):
+    rgb_image = rgb_image / 255.0
+    xyz = np.array([sRGB_to_XYZ(rgb) * 100 for rgb in rgb_image.reshape(-1, 3)])
+
+    # White points
+    XYZ_w_d65 = xyY_to_XYZ(xy_to_xyY(CCS_ILLUMINANTS["CIE 1931 2 Degree Standard Observer"]["D65"]))
+    print(f"The given xyz = {XYZ_w_d65}")
+    get_XYZ_white_from_temperature(6500)
+    # LED-B1	0.4560	0.4560 (wiki)
+    XYZ_w_d27 = get_XYZ_white_from_temperature(2700)
+
+    from colour.appearance import VIEWING_CONDITIONS_CIECAM02
+    vc = VIEWING_CONDITIONS_CIECAM02[surround]
+    Y_b = 20.0        # background luminance
+    vc = VIEWING_CONDITIONS_CIECAM02[surround]
+    # Compute appearance under D65
+    appearance_d65 = [
+        XYZ_to_CIECAM02(x, XYZ_w_d65, Y_n, Y_b, surround=vc)
+        for x in xyz
+    ]
+
+    # Adapt appearance to D27 and convert back to XYZ
+    xyz_d27 = [
+        CIECAM02_to_XYZ(a, XYZ_w_d27, Y_n, Y_b, surround=vc)
+        for a in appearance_d65
+    ]
+
+    # Back to sRGB
+    rgb_d27 = np.stack([XYZ_to_sRGB(x / 100) for x in xyz_d27])
+    
+    return np.clip(rgb_d27.reshape(rgb_image.shape), 0, 1)
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--img', required=True, help='Input image path')
+    parser.add_argument('--out', default='Temperature_expected.png', help='Output path for D27 image')
+    parser.add_argument('--out_optimized', default='Program_optimized.png', help='Output path for D27 image')
+    parser.add_argument('--clusters', type=int, default=1000, help='Number of clusters for visualization')
+    parser.add_argument('--temp', type=float, default=2700, help='Input display color temperature (e.g., 2700 for warm mode)')
+
+    args = parser.parse_args()
+
+    # Load image
+    print(f"Loading image: {args.img}")
+    img = load_image(args.img)
+
+    # Simulate D27 appearance
+    print("Simulating perceptual appearance under D27...")
+    img_expected = simulate_CIECAM02(img, temp=args.temp)
+    save_image(img_expected, args.out)
+    img_opt = apply_inverse_color_temperature(img_expected, 2700)
+    save_image(img_opt, args.out_optimized)
+    
+    print(f"Saved simulated image to {args.out}")
+    print(f"Saved Optimized image to {args.out_optimized}")
+
+
+if __name__ == '__main__':
+    main()
