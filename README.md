@@ -165,7 +165,7 @@ python blue_light_count.py \
 
   ```bash
   python blue_light_count.py \
-    --image ./images/sample.png \
+    --image ./test_image/test_0.5.png \
     --save_spd --plot_spd
   ```
 
