@@ -6,25 +6,27 @@ This module estimates the **total** and **average** blue light energy from an in
 
 ## How to Use
 
-```bash
-python blue_light_count.py --image <image_path> [--temp 6500] [--precision float64] [--resize 256]
+### Minimal usage
 
+Estimate total and average blue light energy (450–525nm):
+
+```bash
+python blue_light_count.py --image ./images/sample.png
 ```
 
-###  Arguments
+---
+
+### Additional Parameters
 
 | Argument      | Description                                                                 |
 |---------------|-----------------------------------------------------------------------------|
-| `--image`     | Path to the input image (e.g., `./images/sample.png`)                      |
 | `--temp`      | Color temperature: `2700`, `3500`, `4500`, `5500`, or `6500` (default: 6500)|
 | `--precision` | Floating-point precision: `float64` or `float32` (default: `float64`)       |
 | `--resize`    | Resize the image’s longer edge to this value. Set `0` to disable resizing. (default: `256`) |
 
 > Resizing is recommended to improve performance with minimal accuracy loss.
 
----
-
-## Example
+Example with all parameters:
 
 ```bash
 python blue_light_count.py \
@@ -34,6 +36,31 @@ python blue_light_count.py \
   --resize 256
 ```
 
+---
+
+### Save SPD Output (0531 update)
+
+* #### Save SPD CSV and plot (auto-naming)
+
+  ```bash
+  python blue_light_count.py --image ./images/sample.png --save_spd --plot_spd
+  ```
+
+  Saves to:
+
+  - `./test_spd_result/sample_spd.csv`
+  - `./test_spd_result/sample_spd_plot.png`
+
+* #### Save with custom paths
+
+  ```bash
+  python blue_light_count.py \
+    --image ./test_image/test_0.5.jpg \
+    --save_spd ./test_spd_reulst/test_0.5_spd.csv \
+    --plot_spd ./test_spd_reulst/test_0.5_spd_plot.png
+  ```
+
+---
 
 ## Folder Structure
 
@@ -41,29 +68,34 @@ All related code is located in the `count_blue_light_energy/` folder:
 
 ```
 blue_light_count.py          # Main CLI script
-count_blue_light_energy/
-
-├── images/                  # Sample input images
-│   └── ori_image.png
-├── plots/                   # Estimated SPD plot of hybrid RGB 
-│   ├── SPD_plot_pred_255_255_0.png
+├── test_image/              # Sample input images
+│   ├── test_0.5.jpg
 │   └── ...
-├── rgb2spd_lookup           # RGB to SPD lookup table
-├── build_rgb2spd_lookup.py  # Build RGB to SPD lookup table
-├── plot_rgb2spd.py          # Plot SPD plot of hybrid RGB
-├── verify_rgb_spd_gamma.py  # Check if RGB-SPD follows gamma curve (✔️ Yes)
-├── verify_rgb_spd_linear.py # Check if RGB-SPD is linear (✘ No)
-└── README.md                
+├── test_spd_result/         # Output folder
+│   ├── test_0.5_spd.csv
+│   ├── test_0.5_spd_plot.png
+│   └── ...
+
+count_blue_light_energy/     # Supplementary utilities
+├── images/
+├── plots/                   # SPD plots for RGB values
+├── rgb2spd_lookup/          # RGB→SPD lookup tables
+├── build_rgb2spd_lookup.py
+├── plot_rgb2spd.py
+├── verify_rgb_spd_gamma.py  # Gamma (fits)
+├── verify_rgb_spd_linear.py # inear (not)
+└── README.md
 ```
 
 ---
 
-## 📊 Output
+## Output Summary
 
-After running the script, it will print:
+After running the script:
 
-- **Total blue light energy (Counts * nm)**
-- **Average blue light energy per pixel (Counts * nm)**
+- Total blue light energy (Counts × nm)
+- Average blue light energy per pixel
+- *(Optional)* SPD CSV output (0531 update)
+- *(Optional)* SPD PNG plot (0531 update)
 
 ---
-
