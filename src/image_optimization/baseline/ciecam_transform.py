@@ -11,45 +11,35 @@ from colour.colorimetry.tristimulus_values import sd_to_XYZ_integration
 from colour.temperature import CCT_to_xy_CIE_D
 from PIL import Image
 
+from img_transform_temp import convert_K_to_RGB, linear_to_srgb, srgb_to_linear
+
 SPECTRAL_SHAPE_RAWTOACES: SpectralShape = SpectralShape(380, 780, 5)
 
-def convert_K_to_RGB(colour_temperature: float) -> np.ndarray:
-    """
-    Convert color temperature in Kelvin to an RGB value.
-    Based on: http://www.tannerhelland.com/4435/convert-temperature-rgb-algorithm-code/
-    """
-    colour_temperature = np.clip(colour_temperature, 1000, 40000)
-    tmp_internal = colour_temperature / 100.0
-
-    if tmp_internal <= 66:
-        red = 255
-    else:
-        red = 329.698727446 * (tmp_internal - 60)**-0.1332047592
-
-    if tmp_internal <= 66:
-        green = 99.4708025861 * np.log(tmp_internal) - 161.1195681661
-    else:
-        green = 288.1221695283 * (tmp_internal - 60)**-0.0755148492
-
-    if tmp_internal >= 66:
-        blue = 255
-    elif tmp_internal <= 19:
-        blue = 0
-    else:
-        blue = 138.5177312231 * np.log(tmp_internal - 10) - 305.0447927307
-
-    return np.clip([red, green, blue], 0, 255) / 255
 
 def apply_inverse_color_temperature(image: np.ndarray, target_temp: float) -> Image.Image:
-    r_scale, g_scale, b_scale = convert_K_to_RGB(target_temp)
+    # [TODO] Fix this function 
+    scaling = convert_K_to_RGB(target_temp)  # sRGB [0,1]
+    scaling_lin = srgb_to_linear(scaling)
+    # avoid deviding by 0
+    scaling_lin = np.clip(scaling_lin, 1e-6, None)
+    print(f"linear scale {scaling_lin}")
     img_np = np.asarray(image).astype(np.float32)
-
-    img_np[..., 0] /= r_scale
-    img_np[..., 1] /= g_scale
-    img_np[..., 2] /= b_scale
-    img_np = np.clip(img_np, 0, 1)
-
-    return img_np
+    img_lin = srgb_to_linear(img_np)
+    
+    # Undo the scaling in linear space
+    img_lin[..., 0] /= scaling_lin[0]
+    img_lin[..., 1] /= scaling_lin[1]
+    img_lin[..., 2] /= scaling_lin[2]
+    # Clamp and convert back to sRGB
+    img_srgb = linear_to_srgb(img_np)
+    print(f"img r max = {np.max(img_srgb[...,0])}  min = {np.min(img_srgb[...,0])}")
+    print(f"img g max = {np.max(img_srgb[...,1])}  min = {np.min(img_srgb[...,1])}")
+    print(f"img b max = {np.max(img_srgb[...,2])}  min = {np.min(img_srgb[...,2])}")
+    
+    print(f"img srgb max = {np.max(img_srgb)} min = {np.min(img_srgb)}")
+    img_srgb = np.clip(img_srgb, 0.0, 1.0)
+    
+    return img_srgb
 
 def get_XYZ_white_from_temperature(temp: float) -> np.ndarray:
     """
@@ -122,7 +112,6 @@ def main():
     parser.add_argument('--img', required=True, help='Input image path')
     parser.add_argument('--out', default='Temperature_expected.png', help='Output path for D27 image')
     parser.add_argument('--out_optimized', default='Program_optimized.png', help='Output path for D27 image')
-    parser.add_argument('--clusters', type=int, default=1000, help='Number of clusters for visualization')
     parser.add_argument('--temp', type=float, default=2700, help='Input display color temperature (e.g., 2700 for warm mode)')
 
     args = parser.parse_args()
@@ -135,7 +124,7 @@ def main():
     print("Simulating perceptual appearance under D27...")
     img_expected = simulate_CIECAM02(img, temp=args.temp)
     save_image(img_expected, args.out)
-    img_opt = apply_inverse_color_temperature(img_expected, 2700)
+    img_opt = apply_inverse_color_temperature(img_expected, args.temp)
     save_image(img_opt, args.out_optimized)
     
     print(f"Saved simulated image to {args.out}")

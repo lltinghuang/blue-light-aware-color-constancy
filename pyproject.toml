@@ -15,6 +15,11 @@ dependencies = [
     "scikit-image (>=0.25.2,<0.26.0)"
 ]
 
+[tool.poetry]
+packages = [
+    { include = "img_transform_temp", from = "src" },
+    { include = "image_optimization", from = "src" }
+]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
