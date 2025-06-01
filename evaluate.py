@@ -2,11 +2,14 @@ import argparse
 import cv2
 import numpy as np
 import sys
+import pandas as pd
 from scipy.spatial import ConvexHull
 from skimage.metrics import structural_similarity as compare_ssim
 import colour  # install colour-science
 from colour.difference import delta_E_CIE2000
-from colour.colorimetry import sd_to_XYZ, MSDS_CMFS
+from colour.colorimetry import SDS_LEFS_PHOTOPIC
+from colour.characterisation import generate_illuminants_rawtoaces_v1
+from colour import SpectralShape
 
 
 def load_image(path):
@@ -21,38 +24,50 @@ def compute_brightness(image, display_max_luminance=100):
     brightness = np.mean(Y) * display_max_luminance
     return brightness
 
-# LER have no relation with image!
-def compute_ler(spd=None, temperature=6500):
-    if spd is None:
-        spd = colour.sd_blackbody(temperature, colour.SpectralShape(360, 830, 1)) # Blackbody SPD at 6500K
-    return colour.luminous_efficacy(spd)
+def load_spd_from_csv(csv_path):
+    """
+    Load spectral power distribution (SPD) from a CSV file.
+    CSV must have two columns: 'wavelength' and 'intensity'.
+    """
+    df = pd.read_csv(csv_path)
+    wavelength = df['wavelength'].values
+    intensity = df['intensity'].values
+    return wavelength, intensity
 
-def sd_to_illuminance(sd, cmfs=MSDS_CMFS['CIE 1931 2 Degree Standard Observer']):
-    XYZ = sd_to_XYZ(sd, cmfs=cmfs)
-    Y = XYZ[1]
-    k = 683  # lm/W for photopic vision
-    return Y * k
+def compute_eml(image, spd_path):
+    # Load SPD
+    spd_df = pd.read_csv(spd_path) #intensity (counts)
+    wl_spd = spd_df.iloc[:, 0].values
+    intensity_spd = spd_df.iloc[:, 1].values
 
-# def compute_eml(image, spd=None, temperature=6500):
-#     if spd is None:
-#         # Use blackbody approximation from temperature (in Kelvin)
-#         spd = colour.sd_blackbody(temperature, colour.SpectralShape(360, 830, 1))
+    # spectral irradiance => (W/m^2/nm), we should enable "intensity correction" QQ
+    lef = SDS_LEFS_PHOTOPIC['CIE 1924 Photopic Standard Observer']
+    lef = lef.copy().align(SpectralShape(start=wl_spd.min(), end=wl_spd.max(), interval=1))
+    lef_interp = np.interp(wl_spd, lef.wavelengths, lef.values)
+    # Simulated luminance from counts:
+    target_luminance = 300
+    L_counts = 683 * np.trapezoid(intensity_spd * lef_interp, wl_spd)
+    scale = target_luminance / L_counts
+    irradiance_spd = intensity_spd * scale  # now in W/m²/nm
 
-#     # Normalize SPD based on image brightness
-#     # Scale so the photopic lux matches the mean brightness of the image
-#     photopic_lux_target = 683 * image.mean()
-#     photopic_lux_original = sd_to_illuminance(spd)
-#     scale_factor = photopic_lux_target / photopic_lux_original
-#     spd *= scale_factor
+    # Load melanopic sensitivity
+    melanopic_csv_path = 'melanopic.csv'
+    mel_df = pd.read_csv(melanopic_csv_path)
+    wl_mel = mel_df['nm'].values
+    mel_sens = mel_df['melanopic'].values
 
-#     # Load melanopic sensitivity curve
-#     melanopic_sd = colour.SDS_TO_XYZ['melanopic']
+    # Interpolate SPD to melanopic wavelengths
+    interp_spd = np.interp(wl_mel, wl_spd, irradiance_spd)
 
-#     # Compute photopic and melanopic lux
-#     melanopic_lux = colour.sd_to_illuminance(spd, relative_spd=melanopic_sd)
+    # Integrate using trapezoidal rule
+    eml = 72983.25 * np.trapezoid(interp_spd * mel_sens, wl_mel)
 
-#     # EML = melanopic_lux (after normalization to match image luminance)
-#     return melanopic_lux
+    print("SPD max:", np.max(irradiance_spd))
+    print("SPD mean:", np.mean(irradiance_spd))
+    print("Melanopic sensitivity max:", np.max(mel_sens))
+    print("EML value (unitless):", eml)
+
+    return eml
 
 def XYZ_to_uv_prime(XYZ):
     """
@@ -106,7 +121,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--ref_image', help='Path to the reference image')
     parser.add_argument('--image', help='Path to the transformed image')
-    parser.add_argument('--metric', required=True, choices=['SSIM', 'CIE2000', 'Brightness', 'LER', 'EML', 'delta_uv_prime', 'Duv', 'SSRGB'], help='Metric to use for evaluation')
+    parser.add_argument('--spd_path', help='Path to the SPD CSV file for EML calculation')
+    parser.add_argument('--metric', required=True, choices=['SSIM', 'CIE2000', 'Brightness', 'EML', 'delta_uv_prime', 'Duv', 'SSRGB'], help='Metric to use for evaluation')
     args = parser.parse_args()
 
     metrics_require_ref = ['SSIM', 'CIE2000', 'delta_uv_prime', 'SSRGB']
@@ -127,11 +143,11 @@ def main():
     elif args.metric == 'Brightness':
         score = compute_brightness(img)
 
-    elif args.metric == 'LER':
-        score = compute_ler()
-
-    # elif args.metric == 'EML':
-    #     score = compute_eml(img)
+    elif args.metric == 'EML':
+        if not args.spd_path:
+            print("Error: --spd_path is required for EML metric")
+            sys.exit(1)
+        score = compute_eml(spd_path=args.spd_path, image=img)
 
     elif args.metric == 'delta_uv_prime':
         score = compute_delta_uv_prime(ref, img)
