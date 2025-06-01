@@ -85,7 +85,6 @@ This script allows you to evaluate the perceptual difference between two images 
 - **SSIM** – Structural Similarity Index  
 - **CIE2000** – Delta E (CIEDE2000) color difference  
 - **Brightness** – Average brightness in cd/m²  
-- **LER** – Luminous Efficacy of Radiation (image-independent)  
 - **EML** – Equivalent Melanopic Lux (*to be implemented*)  
 - **delta_uv_prime** – Δu'v' color difference (CIE 1976)  
 - **Duv** – Distance from the blackbody locus (Ohno 2013)  
@@ -106,14 +105,18 @@ python evaluate.py \
 
 ## TODO and Version Updates
 
-### Version 1 (Current)
+### Version 1 
 - Implemented perceptual metrics (excluding EML)
 - Used simulated SPD (fake blackbody)
 - Tested on simple low-blue-light simulated images
 
+### Version 2 (Current)
+- Updated EML metric
+- Added support for loading SPD data via `--spd_path`
+- Simulated irradiance: converted intensity to irradiance by assuming luminance and applying a scaling factor
+
 ### Planned Updates
-- [ ] Add support for **EML (Equivalent Melanopic Lux)** metric
-- [ ] Integrate **real SPD profiles** for specific devices/monitors
+- [ ] Integrate image and color temperature into an end-to-end SPD estimation pipeline.
 - [ ] Evaluate performance on **real-world image datasets**
 - [ ] Test compatibility with **our proposed color compensation method**
 
