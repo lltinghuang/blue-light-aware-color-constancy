@@ -21,3 +21,6 @@ python img_transform.py -i ./img/cute_furret.jpg -t 2700 -o cute_furret_2700.png
 > The transformation approximates a chromatic adaptation using an RGB scaling factor derived from the target color temperature.
 
 ---
+
+### TODO
+- Check the intensity drop accross different temperature. 
