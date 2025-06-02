@@ -10,9 +10,9 @@ import numpy as np
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Estimate total blue light exposure from an image.")
     parser.add_argument('--image', type=str, required=True, help='Path to input image (e.g., ./image.png)')
-    parser.add_argument('--temp', type=int, required=True, help='Screen temperature in K (e.g., 2700)')
     
     # Optional arguments
+    parser.add_argument('--temp', type=int, default=6500, help='Screen temperature in K (e.g., 2700)')
     parser.add_argument('--mode', type=str, default='hauwei', help='Display mode (e.g., hauwei)')
     parser.add_argument('--precision', type=str, choices=['float32', 'float64'], default='float32', help='Precision of SPD data')
     parser.add_argument('--resize', type=int, default=256, help='Resize longest image edge to this size (default: 512), Use 0 to disable resizing.')
