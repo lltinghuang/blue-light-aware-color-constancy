@@ -185,5 +185,15 @@ python blue_light_count.py \
     --save_spd ./test_spd_reulst/test_0.5_spd.csv \
     --plot_spd ./test_spd_reulst/test_0.5_spd_plot.png
   ```
+### SPD Utilities
+
+This module extracts the average Spectral Power Distribution (SPD) from an RGB image based on screen color temperature.
+
+  ```bash
+  from spd_utils import extract_avg_spd_from_image
+
+  image_path = "./test_image/test_rgb_85_128_85.png"
+  wl, avg_spd = extract_avg_spd_from_image(image_path, temp=6500, resize_max=256)
+  ```
 
 ---
