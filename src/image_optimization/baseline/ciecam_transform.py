@@ -31,12 +31,9 @@ def apply_inverse_color_temperature(image: np.ndarray, target_temp: float) -> Im
     img_lin[..., 1] /= scaling_lin[1]
     img_lin[..., 2] /= scaling_lin[2]
     # Clamp and convert back to sRGB
-    img_srgb = linear_to_srgb(img_np)
-    print(f"img r max = {np.max(img_srgb[...,0])}  min = {np.min(img_srgb[...,0])}")
-    print(f"img g max = {np.max(img_srgb[...,1])}  min = {np.min(img_srgb[...,1])}")
-    print(f"img b max = {np.max(img_srgb[...,2])}  min = {np.min(img_srgb[...,2])}")
+    img_lin = np.clip(img_lin, 0.0, 1.0)
+    img_srgb = linear_to_srgb(img_lin)
     
-    print(f"img srgb max = {np.max(img_srgb)} min = {np.min(img_srgb)}")
     img_srgb = np.clip(img_srgb, 0.0, 1.0)
     
     return img_srgb
@@ -77,35 +74,35 @@ def save_image(rgb_image, path):
 
 def simulate_CIECAM02(rgb_image, Y_n=20, temp=2700, surround='Average'):
     rgb_image = rgb_image / 255.0
-    xyz = np.array([sRGB_to_XYZ(rgb) * 100 for rgb in rgb_image.reshape(-1, 3)])
+    
+    original_shape = rgb_image.shape
+
+    # Step 1: Flatten and extract unique colors
+    rgb_flat = rgb_image.reshape(-1, 3)
+    unique_colors, inverse_indices = np.unique(rgb_flat, axis=0, return_inverse=True)
+
+    # Step 2: Convert to XYZ
+    xyz_unique = np.array([sRGB_to_XYZ(rgb) * 100 for rgb in unique_colors])
 
     # White points
     XYZ_w_d65 = xyY_to_XYZ(xy_to_xyY(CCS_ILLUMINANTS["CIE 1931 2 Degree Standard Observer"]["D65"]))
     print(f"The given xyz = {XYZ_w_d65}")
     get_XYZ_white_from_temperature(6500)
     # LED-B1	0.4560	0.4560 (wiki)
-    XYZ_w_d27 = get_XYZ_white_from_temperature(2700)
+    XYZ_w_dxx = get_XYZ_white_from_temperature(temp)
 
     from colour.appearance import VIEWING_CONDITIONS_CIECAM02
     vc = VIEWING_CONDITIONS_CIECAM02[surround]
     Y_b = 20.0        # background luminance
-    vc = VIEWING_CONDITIONS_CIECAM02[surround]
-    # Compute appearance under D65
-    appearance_d65 = [
-        XYZ_to_CIECAM02(x, XYZ_w_d65, Y_n, Y_b, surround=vc)
-        for x in xyz
-    ]
+    # Step 4: Adapt each unique color
+    cam02_d65 = [XYZ_to_CIECAM02(x, XYZ_w_d65, Y_n, Y_b, surround=vc) for x in xyz_unique]
+    xyz_dxx = [CIECAM02_to_XYZ(a, XYZ_w_dxx, Y_n, Y_b, surround=vc) for a in cam02_d65]
+    rgb_dxx = np.stack([XYZ_to_sRGB(x / 100) for x in xyz_dxx])
 
-    # Adapt appearance to D27 and convert back to XYZ
-    xyz_d27 = [
-        CIECAM02_to_XYZ(a, XYZ_w_d27, Y_n, Y_b, surround=vc)
-        for a in appearance_d65
-    ]
-
-    # Back to sRGB
-    rgb_d27 = np.stack([XYZ_to_sRGB(x / 100) for x in xyz_d27])
+    # Step 5: Map back to full image
+    rgb_output = rgb_dxx[inverse_indices].reshape(original_shape)
     
-    return np.clip(rgb_d27.reshape(rgb_image.shape), 0, 1)
+    return np.clip(rgb_output, 0, 1)
 
 def main():
     parser = argparse.ArgumentParser()
