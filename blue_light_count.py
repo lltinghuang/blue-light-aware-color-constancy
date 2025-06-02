@@ -14,7 +14,7 @@ def parse_arguments():
     # Optional arguments
     parser.add_argument('--temp', type=int, default=6500, help='Screen temperature in K (e.g., 2700)')
     parser.add_argument('--mode', type=str, default='hauwei', help='Display mode (e.g., hauwei)')
-    parser.add_argument('--precision', type=str, choices=['float32', 'float64'], default='float32', help='Precision of SPD data')
+    parser.add_argument('--precision', type=str, choices=['float32', 'float64'], default='float64', help='Precision of SPD data')
     parser.add_argument('--resize', type=int, default=256, help='Resize longest image edge to this size (default: 512), Use 0 to disable resizing.')
     parser.add_argument('--save_spd', nargs='?', const=True, default=None, help='Save average SPD as CSV. Use no value for auto-naming, or provide path.')
     parser.add_argument('--plot_spd', nargs='?', const=True, default=None, help='Save SPD plot as PNG. Use no value for auto-naming, or provide path.')
