@@ -61,12 +61,17 @@ def extract_avg_spd_from_image(image_path: np.ndarray, temp=6500, resize_max=256
     # Step 3: Compute average SPD
     H, W, _ = image_resize.shape
     total_spd = np.zeros_like(spd_R, dtype=np.float64)
+    total_blue_energy = 0.0
+    blue_mask = (wl >= 450) & (wl <= 525)
 
     for y in range(H):
         for x in range(W):
-            rgb = image[y, x]
+            rgb = image_resize[y, x]
             spd = RGB_to_SPD(rgb, spd_R, spd_G, spd_B)
             total_spd += spd
-
+            blue_energy = np.trapezoid(spd[blue_mask], wl[blue_mask])
+            total_blue_energy += blue_energy
+    # avg_blue_energy = total_blue_energy / (H * W)
     avg_spd = total_spd / (H * W) # per-pixel average SPD
+
     return wl, avg_spd
