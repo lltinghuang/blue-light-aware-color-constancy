@@ -3,21 +3,18 @@ import argparse
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from colour import (CCS_ILLUMINANTS, CIECAM02_to_XYZ, RGB_to_XYZ,
-                    XYZ_to_CIECAM02, XYZ_to_sRGB, sRGB_to_XYZ, xy_to_xyY,
-                    xyY_to_XYZ)
+from colour import (CIECAM02_to_XYZ, XYZ_to_CIECAM02, XYZ_to_sRGB,
+                    chromatic_adaptation, sRGB_to_XYZ, xyY_to_XYZ)
 from colour.colorimetry import SpectralShape, sd_blackbody
 from colour.colorimetry.tristimulus_values import sd_to_XYZ_integration
+from colour.plotting import plot_chromaticity_diagram_CIE1931
 from colour.temperature import CCT_to_xy_CIE_D
 from PIL import Image
 
 from img_transform_temp import convert_K_to_RGB, linear_to_srgb, srgb_to_linear
 
-SPECTRAL_SHAPE_RAWTOACES: SpectralShape = SpectralShape(380, 780, 5)
-
 
 def apply_inverse_color_temperature(image: np.ndarray, target_temp: float) -> Image.Image:
-    # [TODO] Fix this function 
     scaling = convert_K_to_RGB(target_temp)  # sRGB [0,1]
     scaling_lin = srgb_to_linear(scaling)
     # avoid deviding by 0
@@ -31,12 +28,9 @@ def apply_inverse_color_temperature(image: np.ndarray, target_temp: float) -> Im
     img_lin[..., 1] /= scaling_lin[1]
     img_lin[..., 2] /= scaling_lin[2]
     # Clamp and convert back to sRGB
-    img_srgb = linear_to_srgb(img_np)
-    print(f"img r max = {np.max(img_srgb[...,0])}  min = {np.min(img_srgb[...,0])}")
-    print(f"img g max = {np.max(img_srgb[...,1])}  min = {np.min(img_srgb[...,1])}")
-    print(f"img b max = {np.max(img_srgb[...,2])}  min = {np.min(img_srgb[...,2])}")
+    img_lin = np.clip(img_lin, 0.0, 1.0)
+    img_srgb = linear_to_srgb(img_lin)
     
-    print(f"img srgb max = {np.max(img_srgb)} min = {np.min(img_srgb)}")
     img_srgb = np.clip(img_srgb, 0.0, 1.0)
     
     return img_srgb
@@ -50,20 +44,57 @@ def get_XYZ_white_from_temperature(temp: float) -> np.ndarray:
     if 4000 <= temp <= 25000:
         # Use CIE D-series daylight model
         xy = CCT_to_xy_CIE_D(temp)
-        XYZ = xyY_to_XYZ([*xy, 1.0])
-        print(f"Daylight CCT {temp}K to xy: {xy} to XYZ: {XYZ}")
-        return XYZ
-
+        XYZ = xyY_to_XYZ([*xy, 1.0])  # Y normalized to 1.0
     elif 1000 <= temp < 4000:
-        # Use blackbody spectral distribution → integrate to XYZ
-        sd = sd_blackbody(temp, SPECTRAL_SHAPE_RAWTOACES)
+        # Use blackbody radiator model
+        from colour.colorimetry import SpectralShape
+        spectral_shape = SpectralShape(360, 830, 1)
+        sd = sd_blackbody(temp, spectral_shape)
         XYZ = sd_to_XYZ_integration(sd)
         XYZ /= XYZ[1]  # Normalize Y to 1
-        print(f"Blackbody CCT {temp}K to XYZ: {XYZ}")
-        return XYZ
-
     else:
-        raise ValueError("CCT must be between 1000K and 25000K for reliable results.")
+        raise ValueError("CCT must be in the range [1000, 25000] K")
+
+    print(f"Temperature: {temp}K → XYZ: {XYZ}")
+    return XYZ
+
+
+def xyz_to_rgb(xyz):
+    # Linear transformation
+    xyz = np.array(xyz)  # Convert to NumPy array for easier calculations
+    rgb = np.array([3.2404542 * xyz[0] - 1.5371385 * xyz[1] - 0.4985314 * xyz[2],
+                    -0.9692660 * xyz[0] + 1.8760108 * xyz[1] + 0.0415560 * xyz[2],
+                    0.0556434 * xyz[0] - 0.2040259 * xyz[1] + 1.0572252 * xyz[2]])
+    # Gamma correction (sRGB)
+    for i in range(3):
+        if rgb[i] <= 0.0031308:
+            rgb[i] = 12.92 * rgb[i]
+        else:
+            rgb[i] = 1.055 * (rgb[i] ** (1 / 2.4)) - 0.055
+    return np.clip(rgb, 0, 1)
+
+# Brute force algor
+def simulate_white_under_CCT(temp: float) -> np.ndarray:
+    """
+    Returns the best-fit [X, 1.0, Z] whitepoint that maps to the given RGB white under a different CCT.
+    """
+    # Get the target sRGB white under this CCT (gamma-encoded)
+    objective = convert_K_to_RGB(temp)
+
+    best_candidate = None
+    best_energy = float('inf')
+
+    for i in np.arange(0.0, 2.0, 0.005):
+        for j in np.arange(0.0, 2.0, 0.005):
+            candidate = np.array([i, 1.0, j])  # fixed Y=1
+            result = xyz_to_rgb(candidate)
+            current_energy = np.linalg.norm(result - objective)
+            if current_energy < best_energy:
+                best_candidate = candidate
+                best_energy = current_energy
+
+    return best_candidate
+
 
 def load_image(path):
     img = cv2.imread(path)
@@ -77,35 +108,44 @@ def save_image(rgb_image, path):
 
 def simulate_CIECAM02(rgb_image, Y_n=20, temp=2700, surround='Average'):
     rgb_image = rgb_image / 255.0
-    xyz = np.array([sRGB_to_XYZ(rgb) * 100 for rgb in rgb_image.reshape(-1, 3)])
+    
+    original_shape = rgb_image.shape
+
+    # Step 1: Flatten and extract unique colors
+    rgb_flat = rgb_image.reshape(-1, 3)
+    unique_colors, inverse_indices = np.unique(rgb_flat, axis=0, return_inverse=True)
+
+    # Step 2: Convert to XYZ
+    xyz_unique = np.array([sRGB_to_XYZ(rgb) * 100 for rgb in unique_colors])
 
     # White points
-    XYZ_w_d65 = xyY_to_XYZ(xy_to_xyY(CCS_ILLUMINANTS["CIE 1931 2 Degree Standard Observer"]["D65"]))
-    print(f"The given xyz = {XYZ_w_d65}")
-    get_XYZ_white_from_temperature(6500)
-    # LED-B1	0.4560	0.4560 (wiki)
-    XYZ_w_d27 = get_XYZ_white_from_temperature(2700)
+    '''
+    # This approach would generate a violation picture that the color exceed the printable area
+    it would required 
+    1. Gumat mapping or tone mapping to fit in the color space
+    XYZ_w_d65 = get_XYZ_white_from_temperature(6500)
+    XYZ_w_dxx = get_XYZ_white_from_temperature(temp)
+    '''
+    
+    # This approach on the other hand, lead to a valid space, however, it's generally more brown ?? 
+    XYZ_w_d65 = get_XYZ_white_from_temperature(6500)
+    XYZ_w_dxx = simulate_white_under_CCT(temp)
 
     from colour.appearance import VIEWING_CONDITIONS_CIECAM02
     vc = VIEWING_CONDITIONS_CIECAM02[surround]
     Y_b = 20.0        # background luminance
-    vc = VIEWING_CONDITIONS_CIECAM02[surround]
-    # Compute appearance under D65
-    appearance_d65 = [
-        XYZ_to_CIECAM02(x, XYZ_w_d65, Y_n, Y_b, surround=vc)
-        for x in xyz
-    ]
-
-    # Adapt appearance to D27 and convert back to XYZ
-    xyz_d27 = [
-        CIECAM02_to_XYZ(a, XYZ_w_d27, Y_n, Y_b, surround=vc)
-        for a in appearance_d65
-    ]
-
-    # Back to sRGB
-    rgb_d27 = np.stack([XYZ_to_sRGB(x / 100) for x in xyz_d27])
+    # Step 4: Adapt each unique color
+    cam02_d65 = [XYZ_to_CIECAM02(x, XYZ_w_d65, Y_n, Y_b, surround=vc) for x in xyz_unique]
+    xyz_dxx = [CIECAM02_to_XYZ(a, XYZ_w_dxx, Y_n, Y_b, surround=vc) for a in cam02_d65]
     
-    return np.clip(rgb_d27.reshape(rgb_image.shape), 0, 1)
+    # xyz_dxx = np.clip(xyz_dxx, 0 , 100)
+    rgb_dxx = np.stack([XYZ_to_sRGB(x / 100) for x in xyz_dxx])
+
+    # Step 5: Map back to full image
+    rgb_output = rgb_dxx[inverse_indices].reshape(original_shape)
+    
+    return np.clip(rgb_output, 0, 1)
+    
 
 def main():
     parser = argparse.ArgumentParser()
