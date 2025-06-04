@@ -1,7 +1,9 @@
+import cv2
 import numpy as np
 from PIL import Image
 
-from img_transform_temp import convert_K_to_RGB, linear_to_srgb, srgb_to_linear
+from img_transform_temp import (apply_color_temperature, convert_K_to_RGB,
+                                linear_to_srgb, srgb_to_linear)
 
 
 def apply_inverse_color_temperature(image: np.ndarray, target_temp: float) -> Image.Image:
@@ -18,7 +20,6 @@ def apply_inverse_color_temperature(image: np.ndarray, target_temp: float) -> Im
     img_lin[..., 1] /= scaling_lin[1]
     img_lin[..., 2] /= scaling_lin[2]
     # Clamp and convert back to sRGB
-    img_lin = np.clip(img_lin, 0.0, 1.0)
     img_srgb = linear_to_srgb(img_lin)
     
     img_srgb = np.clip(img_srgb, 0.0, 1.0)
@@ -38,3 +39,23 @@ def xyz_to_rgb(xyz):
         else:
             rgb[i] = 1.055 * (rgb[i] ** (1 / 2.4)) - 0.055
     return np.clip(rgb, 0, 1)
+
+def load_image(path):
+    img = cv2.imread(path)
+    if img is None:
+        raise FileNotFoundError(f"Image not found: {path}")
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+def save_image(rgb_image, path):
+    rgb_uint8 = np.clip(rgb_image * 255, 0, 255).astype(np.uint8)
+    Image.fromarray(rgb_uint8).save(path)
+
+def correctness_check():
+    image = Image.open("../../img_transform_temp/img/cute_furret_small.png").convert("RGB")
+    transformed_image = apply_color_temperature(image, target_temp = 3500)
+    transformed_image = np.asarray(transformed_image).astype(np.float32) / 255
+    transformed_image = apply_inverse_color_temperature(transformed_image, target_temp = 3500)
+    save_image(transformed_image, "Hello.png")
+
+def violation_check():
+    return False

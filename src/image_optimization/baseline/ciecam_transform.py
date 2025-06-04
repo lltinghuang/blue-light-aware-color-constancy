@@ -1,6 +1,5 @@
 import argparse
 
-import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from colour import (CIECAM02_to_XYZ, XYZ_to_CIECAM02, XYZ_to_sRGB, sRGB_to_XYZ,
@@ -10,9 +9,11 @@ from colour.colorimetry.tristimulus_values import sd_to_XYZ_integration
 from colour.plotting import plot_chromaticity_diagram_CIE1931
 from colour.temperature import CCT_to_xy_CIE_D
 from PIL import Image
-from util import apply_inverse_color_temperature, xyz_to_rgb
+from util import (apply_inverse_color_temperature, load_image, save_image,
+                  xyz_to_rgb)
 
-from img_transform_temp import convert_K_to_RGB, linear_to_srgb, srgb_to_linear
+from img_transform_temp import (apply_color_temperature, convert_K_to_RGB,
+                                linear_to_srgb, srgb_to_linear)
 
 
 def get_XYZ_white_from_temperature(temp: float) -> np.ndarray:
@@ -59,17 +60,6 @@ def simulate_white_under_CCT(temp: float) -> np.ndarray:
                 best_energy = current_energy
 
     return best_candidate
-
-
-def load_image(path):
-    img = cv2.imread(path)
-    if img is None:
-        raise FileNotFoundError(f"Image not found: {path}")
-    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-def save_image(rgb_image, path):
-    rgb_uint8 = np.clip(rgb_image * 255, 0, 255).astype(np.uint8)
-    Image.fromarray(rgb_uint8).save(path)
 
 def simulate_CIECAM02(rgb_image, Y_n=20, temp=2700, surround='Average'):
     rgb_image = rgb_image / 255.0
@@ -132,6 +122,8 @@ def main():
     
     print(f"Saved simulated image to {args.out}")
     print(f"Saved Optimized image to {args.out_optimized}")
+
+
 
 
 if __name__ == '__main__':

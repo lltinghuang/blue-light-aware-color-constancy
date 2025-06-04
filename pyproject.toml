@@ -18,7 +18,8 @@ dependencies = [
 [tool.poetry]
 packages = [
     { include = "img_transform_temp", from = "src" },
-    { include = "image_optimization", from = "src" }
+    { include = "image_optimization", from = "src" },
+    { include = "util", from = "src" }  
 ]
 
 [build-system]
