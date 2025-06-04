@@ -3,37 +3,17 @@ import argparse
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from colour import (CIECAM02_to_XYZ, XYZ_to_CIECAM02, XYZ_to_sRGB,
-                    chromatic_adaptation, sRGB_to_XYZ, xyY_to_XYZ)
+from colour import (CIECAM02_to_XYZ, XYZ_to_CIECAM02, XYZ_to_sRGB, sRGB_to_XYZ,
+                    xyY_to_XYZ)
 from colour.colorimetry import SpectralShape, sd_blackbody
 from colour.colorimetry.tristimulus_values import sd_to_XYZ_integration
 from colour.plotting import plot_chromaticity_diagram_CIE1931
 from colour.temperature import CCT_to_xy_CIE_D
 from PIL import Image
+from util import apply_inverse_color_temperature, xyz_to_rgb
 
 from img_transform_temp import convert_K_to_RGB, linear_to_srgb, srgb_to_linear
 
-
-def apply_inverse_color_temperature(image: np.ndarray, target_temp: float) -> Image.Image:
-    scaling = convert_K_to_RGB(target_temp)  # sRGB [0,1]
-    scaling_lin = srgb_to_linear(scaling)
-    # avoid deviding by 0
-    scaling_lin = np.clip(scaling_lin, 1e-6, None)
-    print(f"linear scale {scaling_lin}")
-    img_np = np.asarray(image).astype(np.float32)
-    img_lin = srgb_to_linear(img_np)
-    
-    # Undo the scaling in linear space
-    img_lin[..., 0] /= scaling_lin[0]
-    img_lin[..., 1] /= scaling_lin[1]
-    img_lin[..., 2] /= scaling_lin[2]
-    # Clamp and convert back to sRGB
-    img_lin = np.clip(img_lin, 0.0, 1.0)
-    img_srgb = linear_to_srgb(img_lin)
-    
-    img_srgb = np.clip(img_srgb, 0.0, 1.0)
-    
-    return img_srgb
 
 def get_XYZ_white_from_temperature(temp: float) -> np.ndarray:
     """
@@ -47,7 +27,6 @@ def get_XYZ_white_from_temperature(temp: float) -> np.ndarray:
         XYZ = xyY_to_XYZ([*xy, 1.0])  # Y normalized to 1.0
     elif 1000 <= temp < 4000:
         # Use blackbody radiator model
-        from colour.colorimetry import SpectralShape
         spectral_shape = SpectralShape(360, 830, 1)
         sd = sd_blackbody(temp, spectral_shape)
         XYZ = sd_to_XYZ_integration(sd)
@@ -58,20 +37,6 @@ def get_XYZ_white_from_temperature(temp: float) -> np.ndarray:
     print(f"Temperature: {temp}K → XYZ: {XYZ}")
     return XYZ
 
-
-def xyz_to_rgb(xyz):
-    # Linear transformation
-    xyz = np.array(xyz)  # Convert to NumPy array for easier calculations
-    rgb = np.array([3.2404542 * xyz[0] - 1.5371385 * xyz[1] - 0.4985314 * xyz[2],
-                    -0.9692660 * xyz[0] + 1.8760108 * xyz[1] + 0.0415560 * xyz[2],
-                    0.0556434 * xyz[0] - 0.2040259 * xyz[1] + 1.0572252 * xyz[2]])
-    # Gamma correction (sRGB)
-    for i in range(3):
-        if rgb[i] <= 0.0031308:
-            rgb[i] = 12.92 * rgb[i]
-        else:
-            rgb[i] = 1.055 * (rgb[i] ** (1 / 2.4)) - 0.055
-    return np.clip(rgb, 0, 1)
 
 # Brute force algor
 def simulate_white_under_CCT(temp: float) -> np.ndarray:
@@ -157,11 +122,9 @@ def main():
     args = parser.parse_args()
 
     # Load image
-    print(f"Loading image: {args.img}")
     img = load_image(args.img)
-
-    # Simulate D27 appearance
-    print("Simulating perceptual appearance under D27...")
+    
+    print(f"Simulating perceptual appearance under temperature of {args.temp}...")
     img_expected = simulate_CIECAM02(img, temp=args.temp)
     save_image(img_expected, args.out)
     img_opt = apply_inverse_color_temperature(img_expected, args.temp)
