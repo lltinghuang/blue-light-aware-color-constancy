@@ -12,14 +12,15 @@ dependencies = [
     "pandas (>=2.2.3,<3.0.0)",
     "colour-science (>=0.4.6,<0.5.0)",
     "scipy (>=1.15.3,<2.0.0)",
-    "scikit-image (>=0.25.2,<0.26.0)"
+    "scikit-image (>=0.25.2,<0.26.0)",
+    "opencv-python (>=4.11.0.86,<5.0.0.0)"
 ]
 
 [tool.poetry]
 packages = [
     { include = "img_transform_temp", from = "src" },
     { include = "image_optimization", from = "src" },
-    { include = "util", from = "src" }  
+    { include = "guided_filter", from = "src/image_optimization/baseline" }
 ]
 
 [build-system]
