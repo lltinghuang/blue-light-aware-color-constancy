@@ -10,7 +10,7 @@ from colour.plotting import plot_chromaticity_diagram_CIE1931
 from colour.temperature import CCT_to_xy_CIE_D
 from PIL import Image
 from util import (apply_inverse_color_temperature, load_image, save_image,
-                  xyz_to_rgb)
+                  violation_check, xyz_to_rgb)
 
 from img_transform_temp import (apply_color_temperature, convert_K_to_RGB,
                                 linear_to_srgb, srgb_to_linear)
@@ -84,7 +84,7 @@ def simulate_CIECAM02(rgb_image, Y_n=20, temp=2700, surround='Average'):
     
     # This approach on the other hand, lead to a valid space, however, it's generally more brown ?? 
     XYZ_w_d65 = get_XYZ_white_from_temperature(6500)
-    XYZ_w_dxx = simulate_white_under_CCT(temp)
+    XYZ_w_dxx = get_XYZ_white_from_temperature(temp)
 
     from colour.appearance import VIEWING_CONDITIONS_CIECAM02
     vc = VIEWING_CONDITIONS_CIECAM02[surround]
@@ -117,6 +117,7 @@ def main():
     print(f"Simulating perceptual appearance under temperature of {args.temp}...")
     img_expected = simulate_CIECAM02(img, temp=args.temp)
     save_image(img_expected, args.out)
+    violation_check(rgb_image = img_expected, temp = args.temp)
     img_opt = apply_inverse_color_temperature(img_expected, args.temp)
     save_image(img_opt, args.out_optimized)
     

@@ -1,0 +1,3 @@
+[submodule "src/image_optimization/baseline/guided_filter"]
+	path = src/image_optimization/baseline/guided_filter
+	url = git@github.com:lisabug/guided-filter.git

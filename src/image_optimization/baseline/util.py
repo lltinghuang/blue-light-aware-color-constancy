@@ -57,5 +57,21 @@ def correctness_check():
     transformed_image = apply_inverse_color_temperature(transformed_image, target_temp = 3500)
     save_image(transformed_image, "Hello.png")
 
-def violation_check():
-    return False
+def violation_check(rgb_image: np.ndarray, temp: float):
+    limit = convert_K_to_RGB(temp)  # e.g., [R_max, G_max, B_max] in [0,1] range
+    if np.max(rgb_image) > 2:
+        rgb_image = rgb_image / 255.0  # normalize if image is in [0,255]
+    
+    # Check for violations
+    violations = rgb_image > limit  # shape: (H, W, 3) > (3,)
+    violation_mask = np.any(violations, axis=-1)  # shape: (H, W), True if any channel exceeds
+
+    # Count total and per-channel violations
+    total_violations = np.sum(violation_mask)
+    channel_violations = np.sum(violations, axis=(0, 1))
+
+    print(f"Total violating pixels: {total_violations}")
+    print(f"Per-channel violations: R={channel_violations[0]}, G={channel_violations[1]}, B={channel_violations[2]}")
+
+    return violation_mask  # Optional: return mask to visualize or process further
+    
