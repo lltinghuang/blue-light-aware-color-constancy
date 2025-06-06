@@ -53,4 +53,3 @@ python ciecam_transform.py --img ../../img_transform_temp/img/cute_furret_small.
    An adjusted image that, when displayed under normal lighting, *resembles* the simulation result.
 
 ---
-

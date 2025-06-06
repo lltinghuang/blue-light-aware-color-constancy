@@ -1,0 +1,4 @@
+[submodule "src/image_optimization/baseline/guided_filter"]
+	path = src/image_optimization/baseline/guided_filter
+	url = git@github.com:YuHengSu1207/guided-filter.git
+	ignore = all
