@@ -41,6 +41,7 @@ def srgb_to_linear(c: np.ndarray) -> np.ndarray:
 
 def linear_to_srgb(c: np.ndarray) -> np.ndarray:
     """Convert linear RGB to sRGB"""
+    c = np.clip(c, 0.0, None)  # Clamp negative values to 0
     # scale 0~1
     return np.where(c <= 0.0031308, c * 12.92, 1.055 * (c ** (1 / 2.4)) - 0.055)
 

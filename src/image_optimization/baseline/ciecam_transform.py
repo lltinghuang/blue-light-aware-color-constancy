@@ -9,8 +9,8 @@ from colour.colorimetry.tristimulus_values import sd_to_XYZ_integration
 from colour.plotting import plot_chromaticity_diagram_CIE1931
 from colour.temperature import CCT_to_xy_CIE_D
 from PIL import Image
-from util import (apply_inverse_color_temperature, load_image, save_image,
-                  violation_check, xyz_to_rgb)
+from util import (apply_inverse_color_temperature, color_scaler, load_image,
+                  normalize_scaler, save_image, violation_check, xyz_to_rgb)
 
 from img_transform_temp import (apply_color_temperature, convert_K_to_RGB,
                                 linear_to_srgb, srgb_to_linear)
@@ -99,7 +99,11 @@ def simulate_CIECAM02(rgb_image, Y_n=20, temp=2700, surround='Average'):
     # Step 5: Map back to full image
     rgb_output = rgb_dxx[inverse_indices].reshape(original_shape)
     
-    return np.clip(rgb_output, 0, 1)
+    # calculate the write point shift
+    true_white = XYZ_to_CIECAM02(np.array([1.0,1.0,1.0]), XYZ_w_d65, Y_n, Y_b, surround=vc)
+    resulting_white = CIECAM02_to_XYZ(true_white, XYZ_w_dxx, Y_n, Y_b, surround=vc)
+    
+    return resulting_white , np.clip(rgb_output, 0, 1)
     
 
 def main():
@@ -107,7 +111,7 @@ def main():
     parser.add_argument('--img', required=True, help='Input image path')
     parser.add_argument('--out', default='Temperature_expected.png', help='Output path for D27 image')
     parser.add_argument('--out_optimized', default='Program_optimized.png', help='Output path for D27 image')
-    parser.add_argument('--temp', type=float, default=2700, help='Input display color temperature (e.g., 2700 for warm mode)')
+    parser.add_argument('--temp', type=float, default=4500, help='Input display color temperature (e.g., 2700 for warm mode)')
 
     args = parser.parse_args()
 
@@ -115,16 +119,36 @@ def main():
     img = load_image(args.img)
     
     print(f"Simulating perceptual appearance under temperature of {args.temp}...")
-    img_expected = simulate_CIECAM02(img, temp=args.temp)
+    w_point , img_expected = simulate_CIECAM02(img, temp=args.temp)
+    
+    
+    '''
+    It might need somehow a more cleaver way to handle
+    '''
+    # print(f"in the resulting image, the max rgb = {np.max(img_expected[:,:,0])}, {np.max(img_expected[:,:,1])}, {np.max(img_expected[:,:,2])}")
+    '''
+    
+    # This part is part of experimental setup aim to make it fit in the scale beforehead.
+    
+    max_val = srgb_to_linear(np.array([np.max(img_expected[:,:,0]), np.max(img_expected[:,:,1]),np.max(img_expected[:,:,2])]))
+    display_limit_lin = srgb_to_linear(convert_K_to_RGB(args.temp))
+    # elementwise div
+    correction = normalize_scaler(max_val / display_limit_lin)
+    
+    print(f"corerection : {correction}")
+    img_expected = color_scaler(img_expected, correction)'''
+    # save here or after the correction
     save_image(img_expected, args.out)
+    
+    '''
+    voilation check on the invalid points, report number of points that can't be shown in that temperature setup.
+    '''
     violation_check(rgb_image = img_expected, temp = args.temp)
     img_opt = apply_inverse_color_temperature(img_expected, args.temp)
     save_image(img_opt, args.out_optimized)
     
     print(f"Saved simulated image to {args.out}")
     print(f"Saved Optimized image to {args.out_optimized}")
-
-
 
 
 if __name__ == '__main__':

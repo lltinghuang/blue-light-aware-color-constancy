@@ -6,6 +6,50 @@ from img_transform_temp import (apply_color_temperature, convert_K_to_RGB,
                                 linear_to_srgb, srgb_to_linear)
 
 
+def normalize_scaler(scaler: np.ndarray) -> np.ndarray:
+    """
+    Normalize a per-channel scaler such that:
+    - If a value > 1, replace it with its reciprocal (1 / value)
+    - If a value <= 1, replace it with 1
+
+    Parameters:
+        scaler (np.ndarray): A 1D array of length 3 representing scaling factors
+                             for the R, G, and B channels.
+
+    Returns:
+        np.ndarray: Normalized scaler array of the same shape.
+    """
+    normalized = np.where(scaler > 1, 1.0 / scaler, 1.0)
+    return normalized
+
+def color_scaler(image: np.ndarray, scaler: np.ndarray) -> np.ndarray:
+    """
+    Apply per-channel scaling to an sRGB image in linear RGB space.
+
+    Parameters:
+        image (np.ndarray): Input image in sRGB color space with shape (H, W, 3),
+                            values expected in [0, 1].
+        scaler (np.ndarray): A 1D array of length 3 representing scaling factors
+                             for the R, G, and B channels, respectively.
+
+    Returns:
+        np.ndarray: The scaled image in sRGB space with values clipped to [0, 1].
+    """
+    # Convert sRGB to linear RGB
+    image_lin = srgb_to_linear(image)
+
+    # Apply per-channel scaling in linear space
+    image_lin[..., 0] *= scaler[0]
+    image_lin[..., 1] *= scaler[1]
+    image_lin[..., 2] *= scaler[2]
+
+    # Convert back to sRGB and clip to valid range
+    img_srgb = linear_to_srgb(image_lin)
+    img_srgb = np.clip(img_srgb, 0.0, 1.0)
+
+    return img_srgb
+
+
 def apply_inverse_color_temperature(image: np.ndarray, target_temp: float) -> Image.Image:
     scaling = convert_K_to_RGB(target_temp)  # sRGB [0,1]
     scaling_lin = srgb_to_linear(scaling)
