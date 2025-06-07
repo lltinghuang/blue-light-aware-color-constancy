@@ -1,5 +1,6 @@
 import argparse
 
+import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from colour import CIECAM02_to_XYZ, XYZ_to_CIECAM02, xyY_to_XYZ
@@ -7,6 +8,8 @@ from colour.colorimetry import SpectralShape, sd_blackbody
 from colour.colorimetry.tristimulus_values import sd_to_XYZ_integration
 from colour.plotting import plot_chromaticity_diagram_CIE1931
 from colour.temperature import CCT_to_xy_CIE_D
+from guided_filter.core.filter import GuidedFilter
+from joblib import Parallel, delayed
 from PIL import Image
 from util import (RGBs_to_XYZ, XYZ_to_RGB, apply_color_temperature_np,
                   load_image, save_image, violation_check)
@@ -38,8 +41,8 @@ def get_XYZ_white_from_temperature(temp: float) -> np.ndarray:
 
 def simulate_CIECAM02(rgb_image, Y_n=20, temp=2700, surround='Average'):
     '''
-    Input range (0~255)
-    Output range (0~1)
+    Input range (0 255)
+    Output range (0 1)
     '''
     rgb_image = rgb_image / 255.0
     
@@ -70,11 +73,17 @@ def simulate_CIECAM02(rgb_image, Y_n=20, temp=2700, surround='Average'):
     # Step 4: Adapt each unique color
     # print(f"first xyz unique {xyz_unique[0]}")
     # print(f"reverse {XYZ_to_CIECAM02(xyz_unique[0], XYZ_w_d65, Y_n, Y_b, surround=vc)}")
-    
-    # [TODO] Use parallel to speed it up
-    cam02_d65 = [XYZ_to_CIECAM02(x, XYZ_w_d65 , Y_n, Y_b, surround=vc) for x in xyz_unique]
-    # [TODO] Use parallel to speed it up
-    xyz_dxx = [CIECAM02_to_XYZ(a, XYZ_w_dxx, Y_n, Y_b, surround=vc) for a in cam02_d65]
+    print(f"start transform with number {len(xyz_unique)}")
+    # Step 4: Adapt each unique color using joblib for parallel speedup
+    cam02_d65 = Parallel(n_jobs=6, backend="threading")(
+        delayed(XYZ_to_CIECAM02)(x, XYZ_w_d65, Y_n, Y_b, surround=vc) for x in xyz_unique
+    )
+
+    xyz_dxx = Parallel(n_jobs=6, backend="threading")(
+        delayed(CIECAM02_to_XYZ)(a, XYZ_w_dxx, Y_n, Y_b, surround=vc) for a in cam02_d65
+    )
+    print("end transform")
+
     
     # Compute JC per unique color
     JC_unique = np.array([cam.J * cam.C for cam in cam02_d65])  # shape: [num_unique,]
@@ -89,6 +98,64 @@ def simulate_CIECAM02(rgb_image, Y_n=20, temp=2700, surround='Average'):
     rgb_output = rgb_dxx[inverse_indices].reshape(original_shape)
 
     return np.clip(rgb_output, 0, 1), JC_full
+
+
+def apply_local_adaptation(image: np.ndarray, eta=36, lmda=10) -> np.ndarray:
+    """
+    Apply tone mapping and color gain scaling to enhance the input image.
+
+    Args:
+        image (np.ndarray): Input RGB image (uint8) with values in [0, 255].
+        eta (float): Parameter controlling alpha scaling factor.
+        lmda (float): Parameter controlling beta in tone mapping.
+
+    Returns:
+        np.ndarray: Enhanced RGB image (uint8) with values in [0, 255].
+    """
+    assert image.dtype == np.uint8, "Input image must be uint8"
+    assert image.ndim == 3 and image.shape[2] == 3, "Input must be an RGB image"
+
+    h, w = image.shape[:2]
+    r, g, b = cv2.split(image)
+    
+    # Luminance
+    l = 0.299 * r + 0.587 * g + 0.114 * b
+    l = l.astype(np.float32) / 255.0  # Normalize to [0,1]
+    
+    # Local adaptation via Guided Filter
+    GF = GuidedFilter(l, radius=30, eps=0.01)
+    Hg = GF.filter(l)
+
+    alpha = 1 + eta * l / np.max(l)
+    Lgaver = np.exp(np.sum(np.log(0.001 + l)) / (h * w))
+    beta = lmda * Lgaver
+    Lout = alpha * np.log(l / Hg + beta)
+
+    # Normalize Lout to [0, 255]
+    Lout = cv2.normalize(Lout, None, 0, 255, cv2.NORM_MINMAX)
+
+    # Compute gain map
+    eps = 1e-6
+    gain = Lout / (l * 255 + eps)
+    gain[gain <= 0] = 0
+
+    # Apply gain to each channel and normalize
+    r_out = np.clip(r * gain, 0, None)
+    g_out = np.clip(g * gain, 0, None)
+    b_out = np.clip(b * gain, 0, None)
+
+    r_out = (r_out / (np.max(r_out) + eps)) * 255
+    g_out = (g_out / (np.max(g_out) + eps)) * 255
+    b_out = (b_out / (np.max(b_out) + eps)) * 255
+
+    # Merge and clip to valid 8-bit range
+    merged = cv2.merge([
+        np.clip(r_out, 0, 255),
+        np.clip(g_out, 0, 255),
+        np.clip(b_out, 0, 255)
+    ])
+
+    return cv2.convertScaleAbs(merged)
 
 def post_process(pending_compensate_rgb : np.ndarray, original_rgb: np.ndarray, temp: float, JC_full: np.ndarray, do_map=True):
     compensate_img = pending_compensate_rgb / convert_K_to_RGB(temp)
@@ -119,7 +186,11 @@ def main():
 
     # Load image
     img = load_image(args.img)
-
+    # img = apply_local_adaptation(img)
+    # preprocess img 
+    preprocess_img = img / 255
+    save_image(preprocess_img, "Preprocess_img.png")
+    
     print(f"Simulating perceptual appearance under temperature of {args.temp}...")
     img_expected , JC_full = simulate_CIECAM02(img, temp=args.temp)
     
