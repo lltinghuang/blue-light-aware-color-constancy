@@ -3,7 +3,8 @@ import argparse
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from colour import CIECAM02_to_XYZ, XYZ_to_CIECAM02, xyY_to_XYZ
+from colour import (CIECAM02_to_XYZ, CIECAM16_to_XYZ, XYZ_to_CIECAM02,
+                    XYZ_to_CIECAM16, xyY_to_XYZ)
 from colour.colorimetry import SpectralShape, sd_blackbody
 from colour.colorimetry.tristimulus_values import sd_to_XYZ_integration
 from colour.plotting import plot_chromaticity_diagram_CIE1931
@@ -76,12 +77,24 @@ def simulate_CIECAM02(rgb_image, Y_n=20, temp=2700, surround='Average'):
     print(f"start transform with number {len(xyz_unique)}")
     # Step 4: Adapt each unique color using joblib for parallel speedup
     cam02_d65 = Parallel(n_jobs=6, backend="threading")(
+        delayed(XYZ_to_CIECAM16)(x, XYZ_w_d65, Y_n, Y_b, surround=vc) for x in xyz_unique
+    )
+
+    xyz_dxx = Parallel(n_jobs=6, backend="threading")(
+        delayed(CIECAM16_to_XYZ)(a, XYZ_w_dxx, Y_n, Y_b, surround=vc) for a in cam02_d65
+    )
+    
+    '''
+    # cam 02
+    cam02_d65 = Parallel(n_jobs=6, backend="threading")(
         delayed(XYZ_to_CIECAM02)(x, XYZ_w_d65, Y_n, Y_b, surround=vc) for x in xyz_unique
     )
 
     xyz_dxx = Parallel(n_jobs=6, backend="threading")(
         delayed(CIECAM02_to_XYZ)(a, XYZ_w_dxx, Y_n, Y_b, surround=vc) for a in cam02_d65
     )
+    '''
+    
     print("end transform")
 
     
