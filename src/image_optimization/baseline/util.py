@@ -5,46 +5,116 @@ from PIL import Image
 from img_transform_temp import (apply_color_temperature, convert_K_to_RGB,
                                 linear_to_srgb, srgb_to_linear)
 
+# This follows the suggestions in the paper:
+# "Exploiting Perceptual Anchoring for Color Image Enhancement"
 
-def normalize_scaler(scaler: np.ndarray) -> np.ndarray:
+# Device Characteristics =================================
+# High light environment
+gamma_rf, gamma_gf, gamma_bf = 2.4767, 2.4286, 2.3792
+M_f = np.array([
+    [95.57,  64.67,  33.01],
+    [49.49, 137.29,  14.76],
+    [ 0.44,  27.21, 169.83]
+])
+
+# Low light environment
+gamma_rl, gamma_gl, gamma_bl = 2.2212, 2.1044, 2.1835
+M_l = np.array([
+    [4.61, 3.35, 1.78],
+    [2.48, 7.16, 0.79],
+    [0.28, 1.93, 8.93]
+])
+# =========================================================
+
+def RGBs_to_XYZ(images: np.ndarray, light_mode: bool = True) -> np.ndarray:
     """
-    Normalize a per-channel scaler such that:
-    - If a value > 1, replace it with its reciprocal (1 / value)
-    - If a value <= 1, replace it with 1
+    Vectorized version of RGB_to_XYZ for multiple RGB values.
 
-    Parameters:
-        scaler (np.ndarray): A 1D array of length 3 representing scaling factors
-                             for the R, G, and B channels.
+    Args:
+        images (np.ndarray): N x 3 array of RGB values in [0, 1].
+        light_mode (bool): True for high light, False for low light.
 
     Returns:
-        np.ndarray: Normalized scaler array of the same shape.
+        np.ndarray: N x 3 array of XYZ values.
     """
-    normalized = np.where(scaler > 1, 1.0 / scaler, 1.0)
-    return normalized
+    gamma_r, gamma_g, gamma_b = (gamma_rf, gamma_gf, gamma_bf) if light_mode else (gamma_rl, gamma_gl, gamma_bl)
+    M = M_f if light_mode else M_l
 
-def color_scaler(image: np.ndarray, scaler: np.ndarray) -> np.ndarray:
+    # Apply per-channel gamma correction
+    images_lin = np.zeros_like(images)
+    images_lin[:, 0] = images[:, 0] ** gamma_r
+    images_lin[:, 1] = images[:, 1] ** gamma_g
+    images_lin[:, 2] = images[:, 2] ** gamma_b
+
+    # Matrix transform (dot each RGB with M.T)
+    xyz = np.dot(images_lin, M.T)
+    return xyz
+
+def XYZ_to_RGB(image: np.ndarray, light_mode: bool = True)-> np.ndarray:
     """
-    Apply per-channel scaling to an sRGB image in linear RGB space.
+    Converts a device-specific XYZ image back to RGB using inverse matrix and inverse gamma correction.
 
-    Parameters:
-        image (np.ndarray): Input image in sRGB color space with shape (H, W, 3),
-                            values expected in [0, 1].
-        scaler (np.ndarray): A 1D array of length 3 representing scaling factors
-                             for the R, G, and B channels, respectively.
+    Args:
+        image (np.ndarray): Input image (H x W x 3) in XYZ space.
+        light_mode (bool): True for high light condition, False for low light.
 
     Returns:
-        np.ndarray: The scaled image in sRGB space with values clipped to [0, 1].
+        np.ndarray: Reconstructed RGB image (H x W x 3), clipped to [0, 1].
     """
-    # Convert sRGB to linear RGB
-    image_lin = srgb_to_linear(image)
+    gamma_r, gamma_g, gamma_b = (gamma_rf, gamma_gf, gamma_bf) if light_mode else (gamma_rl, gamma_gl, gamma_bl)
+    M = M_f if light_mode else M_l
+    M_inv = np.linalg.inv(M)
 
-    # Apply per-channel scaling in linear space
-    image_lin[..., 0] *= scaler[0]
-    image_lin[..., 1] *= scaler[1]
-    image_lin[..., 2] *= scaler[2]
+    # Apply inverse transformation
+    rgb_lin = np.dot(M_inv, image.reshape(-1, 3).T).T.reshape(image.shape)
+
+    # Clip negative values from numerical artifacts
+    rgb_lin = np.clip(rgb_lin, 0, None)
+
+    # Apply inverse gamma
+    rgb = np.zeros_like(rgb_lin)
+    rgb[..., 0] = rgb_lin[..., 0] ** (1 / gamma_r)
+    rgb[..., 1] = rgb_lin[..., 1] ** (1 / gamma_g)
+    rgb[..., 2] = rgb_lin[..., 2] ** (1 / gamma_b)
+
+    # Clip final output to [0, 1] and warn if needed
+    if np.any((rgb < 0) | (rgb > 1)):
+        print("Warning: XYZ to RGB conversion produced out-of-range values. Clipping applied.")
+        rgb = np.clip(rgb, 0, 1)
+
+    return rgb
+
+
+def apply_color_temperature_np(image_np: np.ndarray, target_temp: float) -> np.ndarray:
+    """
+    Apply a physically-based white balance shift to an image in NumPy array format.
+
+    Args:
+        image_np (np.ndarray): Input image as a NumPy array, shape (H, W, 3), values in [0, 1].
+        target_temp (float): Target color temperature in Kelvin.
+
+    Returns:
+        np.ndarray: White-balance-adjusted image, same shape and dtype, values in [0, 1].
+    """
+    # Get energy scaling at target and reference color temperature
+    target_rgb = convert_K_to_RGB(target_temp)
+    scaling = srgb_to_linear(target_rgb)
+    print(f"new scaling: {scaling}")
+    
+    # Ensure input is float32 in [0, 1]
+    image_np = image_np.astype(np.float32)
+    image_np = np.clip(image_np, 0.0, 1.0)
+
+    # Convert to linear RGB
+    img_lin = srgb_to_linear(image_np)
+
+    # Apply energy scaling in linear space
+    img_lin[..., 0] *= scaling[0]
+    img_lin[..., 1] *= scaling[1]
+    img_lin[..., 2] *= scaling[2]
 
     # Convert back to sRGB and clip to valid range
-    img_srgb = linear_to_srgb(image_lin)
+    img_srgb = linear_to_srgb(np.clip(img_lin, 0.0, 1.0))
     img_srgb = np.clip(img_srgb, 0.0, 1.0)
 
     return img_srgb
