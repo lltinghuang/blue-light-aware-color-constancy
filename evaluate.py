@@ -31,49 +31,6 @@ def delta_lightness(img1, img2):
     
     return abs(compute_L(img1) - compute_L(img2))
 
-def load_spd_from_csv(csv_path):
-    """
-    Load spectral power distribution (SPD) from a CSV file.
-    CSV must have two columns: 'wavelength' and 'intensity'.
-    """
-    df = pd.read_csv(csv_path)
-    wavelength = df['wavelength'].values
-    intensity = df['intensity'].values
-    return wavelength, intensity
-
-def compute_eml(image_path, temp=6500):
-    # Load SPD
-    wl_spd, intensity_spd = extract_avg_spd_from_image(image_path, temp, resize_max=256)
-
-    # spectral irradiance => (W/m^2/nm), we should enable "intensity correction" QQ
-    lef = SDS_LEFS_PHOTOPIC['CIE 1924 Photopic Standard Observer']
-    lef = lef.copy().align(SpectralShape(start=wl_spd.min(), end=wl_spd.max(), interval=1))
-    lef_interp = np.interp(wl_spd, lef.wavelengths, lef.values)
-    # Simulated luminance from counts:
-    target_luminance = 300
-    L_counts = 683 * np.trapezoid(intensity_spd * lef_interp, wl_spd)
-    scale = target_luminance / L_counts
-    irradiance_spd = intensity_spd * scale  # now in W/m²/nm
-
-    # Load melanopic sensitivity
-    melanopic_csv_path = 'melanopic.csv'
-    mel_df = pd.read_csv(melanopic_csv_path)
-    wl_mel = mel_df['nm'].values
-    mel_sens = mel_df['melanopic'].values
-
-    # Interpolate SPD to melanopic wavelengths
-    interp_spd = np.interp(wl_mel, wl_spd, irradiance_spd)
-
-    # Integrate using trapezoidal rule
-    eml = 72983.25 * np.trapezoid(interp_spd * mel_sens, wl_mel)
-
-    print("SPD max:", np.max(irradiance_spd))
-    print("SPD mean:", np.mean(irradiance_spd))
-    print("Melanopic sensitivity max:", np.max(mel_sens))
-    print("EML value (unitless):", eml)
-
-    return eml
-
 def XYZ_to_uv_prime(XYZ):
     """
     Convert CIE XYZ to CIE 1976 u'v' chromaticity coordinates.
@@ -107,30 +64,49 @@ def compute_duv(image):
     _, Duv = colour.uv_to_CCT((u, v), method='Ohno 2013', return_D_uv=True)
     return Duv
 
-def compute_ssrgb(image):
-    # Convert RGB [0–255] to float [0–1]
-    flat_rgb = image.reshape(-1, 3).astype(np.float32) / 255.0
+def compute_eml(image_path, temp=6500):
+    # Load SPD
+    wl_spd, intensity_spd = extract_avg_spd_from_image(image_path, temp, resize_max=256)
 
-    # Convert to XYZ then Lab
-    xyz = colour.sRGB_to_XYZ(flat_rgb)
-    lab = colour.XYZ_to_Lab(xyz)
+    # spectral irradiance => (W/m^2/nm), we should enable "intensity correction" QQ
+    lef = SDS_LEFS_PHOTOPIC['CIE 1924 Photopic Standard Observer']
+    lef = lef.copy().align(SpectralShape(start=wl_spd.min(), end=wl_spd.max(), interval=1))
+    lef_interp = np.interp(wl_spd, lef.wavelengths, lef.values)
+    # Simulated luminance from counts:
+    target_luminance = 300
+    L_counts = 683 * np.trapezoid(intensity_spd * lef_interp, wl_spd)
+    scale = target_luminance / L_counts
+    irradiance_spd = intensity_spd * scale  # now in W/m²/nm
 
-    # Only use a*, b* for gamut estimation
-    ab = lab[:, 1:3]
+    # Load melanopic sensitivity
+    melanopic_csv_path = 'melanopic.csv'
+    mel_df = pd.read_csv(melanopic_csv_path)
+    wl_mel = mel_df['nm'].values
+    mel_sens = mel_df['melanopic'].values
 
-    # Compute convex hull area in ab plane
-    hull = ConvexHull(ab)
-    return hull.area
+    # Interpolate SPD to melanopic wavelengths
+    interp_spd = np.interp(wl_mel, wl_spd, irradiance_spd)
+
+    # Integrate using trapezoidal rule
+    eml = 72983.25 * np.trapezoid(interp_spd * mel_sens, wl_mel)
+
+    # print("SPD max:", np.max(irradiance_spd))
+    # print("SPD mean:", np.mean(irradiance_spd))
+    # print("Melanopic sensitivity max:", np.max(mel_sens))
+    # print("EML value (unitless):", eml)
+
+    return eml
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--ref_image', help='Path to the reference image')
     parser.add_argument('--image', help='Path to the transformed image')
     parser.add_argument('--temp', type=int, default=6500, help='Color temperature for EML calculation (default: 6500K)')
-    parser.add_argument('--metric', required=True, choices=['SSIM', 'CIE2000', 'delta_lightness', 'EML', 'delta_uv_prime', 'Duv', 'SSRGB'], help='Metric to use for evaluation')
+    parser.add_argument('--metric', required=True, choices=['delta_lightness', 'CIEDE2000', 'delta_uv_prime', 'Duv', 'EML'], help='Metric to use for evaluation')
     args = parser.parse_args()
 
-    metrics_require_ref = ['SSIM', 'CIE2000', 'delta_lightness', 'delta_uv_prime', 'SSRGB']
+    metrics_require_ref = ['delta_lightness', 'CIEDE2000', 'delta_uv_prime']
     if args.metric in metrics_require_ref and not args.ref_image:
         print(f"Error: --ref_image is required for metric {args.metric}")
         sys.exit(1)
@@ -139,18 +115,11 @@ def main():
         ref = load_image(args.ref_image)
     img = load_image(args.image)
 
-    if args.metric == 'SSIM':
-        score, _ = compare_ssim(ref, img, channel_axis=-1, full=True, win_size=7)
+    if args.metric == 'delta_lightness':
+        score = delta_lightness(ref, img)
 
     elif args.metric == 'CIE2000':
         score = np.mean(delta_E_CIE2000(ref, img))
-
-    elif args.metric == 'delta_lightness':
-        score = delta_lightness(ref, img)
-
-    elif args.metric == 'EML':
-        temp = args.temp if hasattr(args, 'temp') else 6500
-        score = compute_eml(args.image, temp)
 
     elif args.metric == 'delta_uv_prime':
         score = compute_delta_uv_prime(ref, img)
@@ -158,10 +127,9 @@ def main():
     elif args.metric == 'Duv':
         score = compute_duv(img)
 
-    elif args.metric == 'SSRGB':
-        gamut_ref = compute_ssrgb(ref)
-        gamut_trans = compute_ssrgb(img)
-        score = gamut_trans / gamut_ref  # Ratio of transformed to reference gamut area
+    elif args.metric == 'EML':
+        temp = args.temp if hasattr(args, 'temp') else 6500
+        score = compute_eml(args.image, temp)
 
     else:
         raise ValueError(f"Unsupported metric: {args.metric}")
