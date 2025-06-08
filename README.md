@@ -82,15 +82,13 @@ This script allows you to evaluate the perceptual difference between two images 
 
 ### Supported Metrics
 
-- **SSIM** – Structural Similarity Index  
-- **CIE2000($ΔE_{00}$)** – A perceptual color difference metric defined by the CIE, which measures the overall color difference between two colors in the Lab color space. (accounts for ΔL*, ΔC*, ΔH*, S_L, S_C, S_H, R_T).
 - **delta lightness** - The perceptual difference in lightness (ΔL*) between two images, based on the L* component in the CIE Lab color space.
-- **EML** – Equivalent Melanopic Lux 
+- **CIEDE2000($ΔE_{00}$)** – A perceptual color difference metric defined by the CIE, which measures the overall color difference between two colors in the Lab color space. (accounts for ΔL*, ΔC*, ΔH*, S_L, S_C, S_H, R_T).
 - **delta_uv_prime** – Δu'v' color difference (CIE 1976)  
 - **Duv** – Distance from the blackbody locus (Ohno 2013)  
-- **SSRGB** – Gamut area in a*b* space using convex hull  
+- **EML** – Equivalent Melanopic Lux 
 
-> ⚠️ Some metrics (like `SSIM`, `CIE2000`, `delta lightness`, `delta_uv_prime`, `SSRGB`) require a reference image. Make sure to provide `--ref_image`.
+> ⚠️ Some metrics (like `CIEDE2000`, `delta lightness`, `delta_uv_prime`) require a reference image. Make sure to provide `--ref_image`.
 
 ---
 
@@ -100,7 +98,7 @@ This script allows you to evaluate the perceptual difference between two images 
 python evaluate.py \
     --image path/to/transformed_image.png \
     --ref_image path/to/reference_image.png \
-    --metric SSIM
+    --metric CIEDE2000
 ```
 
 # Estimate Image Blue Light Energy
