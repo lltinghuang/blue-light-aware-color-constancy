@@ -1,15 +1,18 @@
 import argparse
+import sys
+
+import colour  # install colour-science
 import cv2
 import numpy as np
-import sys
 import pandas as pd
+from colour import SpectralShape
+from colour.colorimetry import SDS_LEFS_PHOTOPIC
+from colour.difference import delta_E_CIE2000
 from scipy.spatial import ConvexHull
 from skimage.metrics import structural_similarity as compare_ssim
-import colour  # install colour-science
-from colour.difference import delta_E_CIE2000
-from colour.colorimetry import SDS_LEFS_PHOTOPIC
-from colour import SpectralShape
+
 from spd_utils import extract_avg_spd_from_image
+
 
 def load_image(path):
     img = cv2.imread(path)
@@ -118,7 +121,7 @@ def main():
     if args.metric == 'delta_lightness':
         score = delta_lightness(ref, img)
 
-    elif args.metric == 'CIE2000':
+    elif args.metric == 'CIEDE2000':
         score = np.mean(delta_E_CIE2000(ref, img))
 
     elif args.metric == 'delta_uv_prime':
