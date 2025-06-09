@@ -170,11 +170,12 @@ def apply_local_adaptation(image: np.ndarray, eta=36, lmda=10) -> np.ndarray:
 
     return cv2.convertScaleAbs(merged)
 
-def post_process(pending_compensate_rgb : np.ndarray, original_rgb: np.ndarray, temp: float, JC_full: np.ndarray, do_map=True):
+def post_process(pending_compensate_rgb : np.ndarray, original_rgb: np.ndarray, temp: float, JC_full: np.ndarray, do_map : bool = True, do_two_comp : bool = False):
     compensate_img = pending_compensate_rgb / convert_K_to_RGB(temp)
     print(f"max after compensate {np.max(compensate_img)}")
     # doing two compensation at once ? 
-    compensate_img = compensate_img / convert_K_to_RGB(temp)
+    if(do_two_comp):
+        compensate_img = compensate_img / convert_K_to_RGB(temp)
     compensate_img = np.clip(compensate_img,0 ,1)
     if do_map:
         print("Post Gamut Mapping enabled")
@@ -194,22 +195,23 @@ def main():
     parser.add_argument('--out', default='Temperature_expected.png', help='Output path for D27 image')
     parser.add_argument('--out_optimized', default='Program_optimized.png', help='Output path for D27 image')
     parser.add_argument('--temp', type=float, default=2700, help='Input display color temperature (e.g., 2700 for warm mode)')
+    parser.add_argument('--two_comp', type=lambda x: x.lower() == 'true', default=True, help='Do two times compensation')
 
     args = parser.parse_args()
 
     # Load image
     img = load_image(args.img)
-    # img = apply_local_adaptation(img)
-    # preprocess img 
-    preprocess_img = img / 255
-    save_image(preprocess_img, "Preprocess_img.png")
+    img = apply_local_adaptation(img)
+    # save preprocess img 
+    # preprocess_img = img / 255
+    # save_image(preprocess_img, "Preprocess_img.png")
     
     print(f"Simulating perceptual appearance under temperature of {args.temp}...")
     img_expected , JC_full = simulate_CIECAM02(img, temp=args.temp)
     
-    post_process_img = post_process(pending_compensate_rgb = img_expected, original_rgb = img / 255,temp = args.temp, JC_full = JC_full, do_map = True)
+    post_process_img = post_process(pending_compensate_rgb = img_expected, original_rgb = img / 255,temp = args.temp, JC_full = JC_full, do_map = True, do_two_comp = args.two_comp)
     # save here or after the correction
-    save_image(post_process_img, args.out_optimized)
+    # save_image(post_process_img, args.out_optimized)
     
     '''
     voilation check on the invalid points, report number of points that can't be shown in that temperature setup.
@@ -218,7 +220,7 @@ def main():
     save_image(img_out, args.out)
     
     print(f"Saved simulated image to {args.out}")
-    print(f"Saved Optimized image to {args.out_optimized}")
+    # print(f"Saved Optimized image to {args.out_optimized}")
 
 
 if __name__ == '__main__':
