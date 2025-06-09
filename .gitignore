@@ -212,3 +212,4 @@ cython_debug/
 *.exe
 *.out
 *.app
+evaluate_blue_light_EML.sh
