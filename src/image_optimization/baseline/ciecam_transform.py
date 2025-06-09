@@ -175,7 +175,9 @@ def post_process(pending_compensate_rgb : np.ndarray, original_rgb: np.ndarray, 
     print(f"max after compensate {np.max(compensate_img)}")
     # doing two compensation at once ? 
     if(do_two_comp):
-        compensate_img = compensate_img / convert_K_to_RGB(temp)
+        compensate_img_two = compensate_img / (convert_K_to_RGB(temp))
+        compensate_img = (compensate_img + compensate_img_two) / 2
+        
     compensate_img = np.clip(compensate_img,0 ,1)
     if do_map:
         print("Post Gamut Mapping enabled")
