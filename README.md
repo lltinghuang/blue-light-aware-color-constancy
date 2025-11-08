@@ -1,6 +1,14 @@
 # blue-light-aware-color-constancy
 This project uses [Poetry](https://python-poetry.org/) to manage the Python environment and dependencies.
 
+## Final report
+The final report can be discovered in [Report](./report.pdf)
+
+| Original | Transformed | Transformed + Post-modified |
+|:---------:|:------------:|:---------------------------:|
+| ![Original](test_image/camera_26_original.png) | ![Transformed](test_image/camera_26_2700k.png) | ![Post-modified](test_image/camera_26_finalized.png) |
+| ![Original](test_image/camera_30_original.png) | ![Transformed](test_image/camera_30_2700k.png) | ![Post-modified](test_image/camera_30_finalized.png) |
+
 ##  Environment Setting
 Make sure you have installed *Poetry*.
 
